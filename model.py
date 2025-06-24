@@ -81,7 +81,7 @@ class ModelConfig:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class RoPE(nn.Module):
-    def __init__(self, d_k: int, rope_theta: float = 10000.0):
+    def __init__(self, d_k: int, rope_theta: float = 10000.0, device: str = 'cpu'):
         """
         Rotary Positional Embedding (RoPE) module. We precompute the inverse frequencies (`inv_freq`) based on `rope_theta` and the dimension of each attention head (`d_k`). The actual rotation angles (`freqs_cis`) depend on the token positions and are calculated dynamically within the forward pass.
 
@@ -94,13 +94,17 @@ class RoPE(nn.Module):
             Dimension of embeddings in each attention head.
         rope_theta : float
             Base theta value for computing frequencies.
+        device : str
+            Device to run the RoPE calculations on (default is 'cpu').
         """
 
         super().__init__()
+        self.device = device
         self.rope_freq_indices = torch.arange(0, d_k, 2, dtype=torch.float)
         self.inv_freq = 1.0 / (rope_theta ** (self.rope_freq_indices / d_k))
+        self.inv_freq = self.inv_freq.to(device)  # Move to the specified device
 
-    def calc_frequencies(self, T: int, B: int, device: str = 'cpu') -> torch.Tensor:
+    def calc_frequencies(self, T: int, B: int) -> torch.Tensor:
         """
         Calculate the frequencies of RoPE for an input-batch based on the precomputed inverse frequencies.
 
@@ -112,9 +116,6 @@ class RoPE(nn.Module):
         B : int
             Batch size.
 
-        device : str
-            Device to perform calculations on ('cpu' or 'cuda').
-        
         Returns
         -------
         freqs_cis : torch.Tensor
@@ -123,6 +124,7 @@ class RoPE(nn.Module):
         
         # Create position IDs (0 to T-1)
         position_ids = torch.arange(T).unsqueeze(0) # Shape: (1, T)
+        position_ids = position_ids.to(self.device)  # Move to the specified device
         
         # Expand inv_freq for batch and sequence length
         # inv_freq shape: (d_k/2) -> (1, d_k/2, 1) -> (B, d_k/2, 1)
@@ -132,7 +134,7 @@ class RoPE(nn.Module):
         pos_ids_expanded = position_ids.expand(B, -1).unsqueeze(1).float()
         
         # Calculate frequencies: (B, d_k/2, 1) @ (B, 1, T) -> (B, d_k/2, T)
-        with torch.autocast(device_type=device, enabled=False): # RoPE often done in float32
+        with torch.autocast(device_type=self.device, enabled=False): # RoPE often done in float32
             freqs = (inv_freq_expanded.float() @ pos_ids_expanded).transpose(1, 2) # (B, T, d_k/2)
             # Convert to complex numbers (cis format: cos + i*sin)
             freqs_cis = torch.polar(torch.ones_like(freqs), freqs) # (B, T, d_k/2)
@@ -266,7 +268,7 @@ class MoELayer(nn.Module):
         # Create token indices corresponding to the selected experts
         # token_idx goes from 0 to B*T-1
         # expert_idx is the index of the expert selected (0 to num_experts-1)
-        token_idx = torch.arange(B * T).repeat_interleave(self.num_experts_per_tok) # (B*T*k)
+        token_idx = torch.arange(B * T, device=x.device).repeat_interleave(self.num_experts_per_tok) # (B*T*k)
         expert_idx = selected_experts_flat # (B*T*k)
 
         # Gather the hidden states for each token * expert combination
@@ -335,7 +337,7 @@ class MoELayer(nn.Module):
         return final_moe_output  # (B, T, C)
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model: int, n_heads: int, block_size: int, rope: RoPE):
+    def __init__(self, d_model: int, n_heads: int, block_size: int, rope: RoPE, device: str = 'cpu'):
         """
         Multi-Head Attention with Rotary Positional Embeddings (RoPE).
 
@@ -349,6 +351,8 @@ class MultiHeadAttention(nn.Module):
             Maximum sequence length.
         rope : RoPE
             Rotary positional embedding module.
+        device : str
+            Device to run the attention calculations on (default is 'cpu').
         """
 
         super().__init__()
@@ -359,12 +363,14 @@ class MultiHeadAttention(nn.Module):
         self.d_k = d_model // n_heads
         self.block_size = block_size
         self.rope = rope
+        self.device = device
 
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.out_proj = nn.Linear(d_model, d_model, bias=False)
 
         # Causal mask for attention
-        self.causal_mask = self.create_causal_mask(block_size)
+        self.causal_mask = self.create_causal_mask(block_size).to(device)
+
 
     def create_causal_mask(self, block_size: int) -> torch.Tensor:
         """
@@ -466,7 +472,7 @@ class MoETransformer(nn.Module):
             embedding_dim=config.d_model)
         
         # Rotary Positional Embedding (RoPE)
-        self.rope = RoPE(d_k=config.d_k, rope_theta=config.rope_theta)
+        self.rope = RoPE(d_k=config.d_k, rope_theta=config.rope_theta, device=config.device)
 
         # RMSNorm layers
         self.rms_norm = nn.ModuleList([
@@ -480,7 +486,8 @@ class MoETransformer(nn.Module):
                 d_model=config.d_model, 
                 n_heads=config.n_heads, 
                 block_size=config.block_size, 
-                rope=self.rope)
+                rope=self.rope, 
+                device=config.device)
             for _ in range(config.n_layers)
         ])
 
@@ -588,10 +595,7 @@ class MoETransformer(nn.Module):
         
         # Prepare RoPE frequencies
         # Note: RoPE frequencies depend on the sequence length and batch size
-        freqs_cis = self.rope.calc_frequencies(
-            T=T, 
-            B=B, 
-            device=self.config.device)  # (B, T, d_k/2)
+        freqs_cis = self.rope.calc_frequencies(T=T, B=B)  # (B, T, d_k/2)
 
         # --- Transformer Blocks Loop ---
         for i in range(self.config.n_layers):
