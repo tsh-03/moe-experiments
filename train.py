@@ -20,7 +20,7 @@ class TrainModel:
                  learning_rate: float=5e-4, 
                  epochs: int=3000, 
                  print_interval: int=300, 
-                 datadir: str="./dataset/alice_sample_dataset.pt", 
+                 dataset = None,
                  test_split: float=0.1
                  ):
         """
@@ -43,8 +43,8 @@ class TrainModel:
         print_interval : int
             The number of epochs after which to print the training loss (default is 300).
 
-        datadir : str
-            The directory where the training dataset is stored (default is "./dataset/alice_sample_dataset.pt
+        dataset : Dataset
+            The dataset to be used for training and validation.
 
         test_split : float
             The fraction of the dataset to be used for validation (default is 0.1).
@@ -55,9 +55,8 @@ class TrainModel:
         self.epochs = epochs
         self.print_interval = print_interval
         self.model = model
+        self.dataset = dataset
 
-        self.dataset = torch.load(datadir, weights_only=False)
-        
         # default optimizer chosen is AdamW
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.learning_rate)
 

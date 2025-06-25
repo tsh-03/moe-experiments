@@ -7,11 +7,63 @@
 
 import torch
 from torch.utils.data import Dataset
-from pathlib import Path
 from typing import Tuple
+from datasets import load_dataset
+import tiktoken
 
-class Tokenizer:
+class Tokenizer():
     def __init__(self, vocab: list):
+        """
+        Base tokenizer class that provides common functionality for encoding and decoding.
+
+        Parameters
+        ----------
+        vocab : list
+            A list of tokens that form the vocabulary for tokenization.
+        """
+
+        self.vocab = vocab
+        self.vocab_size = len(vocab)
+        self.stoi = {ch: i for i, ch in enumerate(vocab)}
+        self.itos = {i: ch for ch, i in self.stoi.items()}
+
+    def encode(self, text: str) -> list:
+        """
+        Encodes text into a list of token indices.
+
+        Parameters
+        ----------
+        text : str
+            The text to encode.
+
+        Returns
+        -------
+        list
+            A list of token indices.
+        """
+
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def decode(self, tokens: list) -> str:
+        """
+        Decodes a list of token indices back into text.
+
+        Parameters
+        ----------
+        tokens : list
+            A list of token indices to decode.
+
+        Returns
+        -------
+        str
+            The decoded text.
+        """
+
+        raise NotImplementedError("Subclasses should implement this method")
+
+
+class CharTokenizer(Tokenizer):
+    def __init__(self, text: str):
         """ 
         Manually initializes the tokenizer with a given vocabulary.
 
@@ -21,17 +73,43 @@ class Tokenizer:
             A list of characters that form the vocabulary for tokenization.
         """
 
-        self.vocab = vocab
-        self.stoi = {ch: i for i, ch in enumerate(vocab)}
-        self.itos = {i: ch for ch, i in self.stoi.items()}
-        self.vocab_size = len(vocab)
+        self.vocab = sorted(list(set(text))) # Create a vocabulary from the text
+        super().__init__(self.vocab)
 
     def encode(self, text: str) -> list:
-        return [self.stoi[c] for c in text]
+        """
+        Encodes text into a list of token indices.
+
+        Parameters
+        ----------
+        text : str
+            The text to encode.
+
+        Returns
+        -------
+        list
+            A list of token indices.
+        """
+
+        return [self.stoi[c] for c in text]  
 
     def decode(self, tokens: list) -> str:
-        return ''.join([self.itos[i] for i in tokens])
+        """
+        Decodes a list of token indices back into text.
 
+        Parameters
+        ----------
+        tokens : list
+            A list of token indices to decode.
+
+        Returns
+        -------
+        str
+            The decoded text.
+        """
+
+        return ''.join([self.itos[i] for i in tokens])
+    
 class CharDataset(Dataset):
     def __init__(self, text: str, block_size: int = 64):
         """
@@ -47,9 +125,7 @@ class CharDataset(Dataset):
         """
 
         self.block_size = block_size
-
-        chars = sorted(list(set(text)))
-        self.tokenizer = Tokenizer(chars)
+        self.tokenizer = CharTokenizer(text)
         self.data = self.tokenizer.encode(text)
 
     def __len__(self) -> int:
@@ -80,24 +156,148 @@ class CharDataset(Dataset):
         
         return x, y
 
-if __name__ == "__main__":
-    # input_path = Path("tiny_shakespeare.txt")
-    # text = input_path.read_text(encoding="utf-8")
+class TikTokenTokenizer(Tokenizer):
+    def __init__(self, text: str):
+        """
+        Tokenizer that uses tiktoken encoding but with a limited vocabulary.
 
-    text = """
-        Alice was beginning to get very tired of sitting by her sister on the
-        bank, and of having nothing to do: once or twice she had peeped into the
-        book her sister was reading, but it had no pictures or conversations in
-        it, 'and what is the use of a book,' thought Alice 'without pictures or
-        conversation?'
-        So she was considering in her own mind (as well as she could, for the
-        hot day made her feel very sleepy and stupid), whether the pleasure
-        of making a daisy-chain would be worth the trouble of getting up and
-        picking the daisies, when suddenly a White Rabbit with pink eyes ran
-        close by her.
+        Parameters
+        ----------
+        text : str
+            The text to initialize the tokenizer with.
         """
 
-    dataset = CharDataset(text)
-    torch.save(dataset, "./dataset/alice_sample_dataset.pt")
+        self.tiktoken_enc = tiktoken.get_encoding("gpt2")
+        
+        # Create a limited vocabulary from the text
+        unique_tokens = set(self.tiktoken_enc.encode(text))
+        vocab_tokens = [self.tiktoken_enc.decode([token]) for token in unique_tokens]
+        
+        # Add special tokens
+        special_tokens = ['<UNK>', '<PAD>']
+        vocab_tokens = special_tokens + vocab_tokens
+
+        self.vocab = vocab_tokens
+        
+        super().__init__(self.vocab)
+
+    def encode(self, text: str) -> list:
+        """
+        Encodes text into a list of token indices using tiktoken encoding.
+
+        Parameters
+        ----------
+        text : str
+            The text to encode.
+
+        Returns
+        -------
+        list
+            A list of token indices.
+        """
+
+        # Encode using tiktoken and map to limited vocabulary
+        orig_token_idx = self.tiktoken_enc.encode(text)
+        text_tokens = [self.tiktoken_enc.decode([idx]) for idx in orig_token_idx]
+
+        return [self.stoi.get(text_token, self.stoi['<UNK>']) for text_token in text_tokens]
+
+    def decode(self, tokens: list) -> str:
+        """
+        Decodes a list of token indices back into text using tiktoken decoding.
+
+        Parameters
+        ----------
+        tokens : list
+            A list of token indices to decode.
+
+        Returns
+        -------
+        str
+            The decoded text.
+        """
+
+        # Map limited vocabulary indices back to original tokens
+        text_tokens = [self.itos[token] for token in tokens]
+
+        return ''.join(text_tokens)
+
+class TinyStoriesDataset(Dataset):
+    def __init__(self, split: str = 'train', block_size: int = 64, max_samples: int = None):
+        """
+        Creates a dataset from TinyStories using tiktoken tokenization with limited vocabulary.
+
+        Parameters
+        ----------
+        split : str, optional
+            The dataset split to use ('train' or 'validation', default is 'train').
+        block_size : int, optional
+            The size of each input sequence (default is 64).
+        max_samples : int, optional
+            Maximum number of samples to load (default is None for all samples).
+        """
+
+        self.block_size = block_size
+        
+        # Load TinyStories dataset
+        self.dataset = load_dataset("roneneldan/TinyStories", split=split)
+        
+        # Limit samples if specified
+        if max_samples is not None:
+            self.dataset = self.dataset.select(range(min(max_samples, len(self.dataset))))
+        
+        # Sample some text to build vocabulary
+        sample_size = min(1000, len(self.dataset))
+        sample_texts = [self.dataset[i]['text'] for i in range(sample_size)]
+        sample_text = '\n'.join(sample_texts)
+        
+        # Initialize tokenizer with vocabulary from sample
+        self.tokenizer = TikTokenTokenizer(sample_text)
+        
+        print(f"TinyStoriesDataset loaded with {len(self.dataset)} stories and vocabulary size {self.tokenizer.vocab_size}")
+
+    def __len__(self) -> int:
+        """
+        Returns the number of stories in the dataset.
+        """
+        
+        return len(self.dataset)
     
-    print("Saved dataset with vocab size:", dataset.vocab_size)
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns input and target sequences for a given story index.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the story to retrieve from the TinyStories dataset.
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            A tuple containing the input sequence (x) and the target sequence (y).
+        """
+        
+        # Get the story text at the given index
+        story_text = self.dataset[idx]['text']
+        
+        # Tokenize the story
+        tokens = self.tokenizer.encode(story_text)
+        
+        # If story is shorter than block_size, pad it
+        if len(tokens) < self.block_size + 1:
+            print(f"Warning: Story at index {idx} is shorter than block_size + 1. Padding with <PAD> token.")
+            # Pad with the PAD token index
+            pad_token_idx = self.tokenizer.stoi['<PAD>']
+            tokens.extend([pad_token_idx] * (self.block_size + 1 - len(tokens)))
+        
+        # Take only block_size + 1 tokens (for input and target)
+        chunk = tokens[:self.block_size + 1]
+        
+        x = torch.tensor(chunk[:-1], dtype=torch.long)  # Input sequence
+        y = torch.tensor(chunk[1:], dtype=torch.long)   # Target sequence (shifted by 1)
+        
+        return x, y
+
+
+
