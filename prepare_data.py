@@ -174,7 +174,7 @@ class TikTokenTokenizer(Tokenizer):
         vocab_tokens = [self.tiktoken_enc.decode([token]) for token in unique_tokens]
         
         # Add special tokens
-        special_tokens = ['<UNK>', '<PAD>']
+        special_tokens = ['<PAD>', '<UNK>']
         vocab_tokens = special_tokens + vocab_tokens
 
         self.vocab = vocab_tokens
@@ -234,7 +234,7 @@ class TinyStoriesDataset(Dataset):
         block_size : int, optional
             The size of each input sequence (default is 64).
         max_samples : int, optional
-            Maximum number of samples to load (default is None for all samples).
+            Maximum number of samples to load (default is None for all samples). It is recommended to not set this to None for very large datasets.
         """
 
         self.block_size = block_size
@@ -247,7 +247,7 @@ class TinyStoriesDataset(Dataset):
             self.dataset = self.dataset.select(range(min(max_samples, len(self.dataset))))
         
         # Sample some text to build vocabulary
-        sample_size = min(1000, len(self.dataset))
+        sample_size = len(self.dataset)
         sample_texts = [self.dataset[i]['text'] for i in range(sample_size)]
         sample_text = '\n'.join(sample_texts)
         
