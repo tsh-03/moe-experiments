@@ -13,24 +13,19 @@ from tqdm import trange
 import matplotlib.pyplot as plt
 import os
 
-class TrainModel:
+
+class TrainConfig:
     def __init__(self, 
-                 model: MoETransformer,
                  batch_size: int=16, 
                  learning_rate: float=5e-4, 
                  epochs: int=3000, 
                  print_interval: int=300, 
-                 dataset = None,
-                 test_split: float=0.1
-                 ):
+                 test_split: float=0.1):
         """
-        Initializes the training configuration for the MoE Transformer model. 
+        Initializes the training configuration.
 
         Parameters
         ----------
-        model : MoETransformer
-            The MoE Transformer model to be trained.
-
         batch_size : int
             The number of samples per batch during training (default is 16).
 
@@ -43,9 +38,6 @@ class TrainModel:
         print_interval : int
             The number of epochs after which to print the training loss (default is 300).
 
-        dataset : Dataset
-            The dataset to be used for training and validation.
-
         test_split : float
             The fraction of the dataset to be used for validation (default is 0.1).
         """
@@ -54,28 +46,52 @@ class TrainModel:
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.print_interval = print_interval
+        self.test_split = test_split
+class TrainModel:
+    def __init__(self, 
+                 model: MoETransformer,
+                 train_config: TrainConfig,
+                 dataset,
+                 ):
+        """
+        Initializes the training configuration for the MoE Transformer model. 
+
+        Parameters
+        ----------
+        model : MoETransformer
+            The MoE Transformer model to be trained.
+
+        train_config : TrainConfig
+            The training configuration containing batch size, learning rate, epochs, print interval, and test split.
+
+        dataset : Dataset
+            The dataset to be used for training and validation.
+        """
+
+        self.train_config = train_config
         self.model = model
         self.dataset = dataset
 
         # default optimizer chosen is AdamW
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.train_config.learning_rate)
 
         # Compute split sizes
-        test_size = int(len(self.dataset) * test_split)
+        test_size = int(len(self.dataset) * self.train_config.test_split)
         train_size = len(self.dataset) - test_size
 
         # Split the dataset
         train_dataset, test_dataset = random_split(self.dataset, [train_size, test_size])
 
         # Create data loaders
-        self.train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.test_dataloader = DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
+        self.train_dataloader = DataLoader(train_dataset, batch_size=self.train_config.batch_size, shuffle=True)
+        self.test_dataloader = DataLoader(test_dataset, batch_size=self.train_config.batch_size, shuffle=False)
 
         # Device configuration
         self.device = self.model.config.device
 
-        # Training losses
+        # During training, we will log losses and routing entropies
         self.train_losses = []
+        self.routing_entropies = []
 
     def loss_fn(self, logits, targets):
         """
@@ -151,7 +167,7 @@ class TrainModel:
         
         # Training loop
         print("Starting training...")
-        for epoch in trange(self.epochs):
+        for epoch in trange(self.train_config.epochs):
             xb, yb = next(iter(self.train_dataloader))
             xb, yb = xb.to(self.device), yb.to(self.device) # Move data to device
 
@@ -164,8 +180,12 @@ class TrainModel:
             current_loss = loss.item()
             self.train_losses.append(current_loss)
 
-            if (epoch+1) % self.print_interval == 0 or epoch == self.epochs - 1:
-                print(f"  Epoch {epoch+1}/{self.epochs}, Loss: {current_loss:.4f}")
+            # compute expert utilization and routing entropy
+            routing_entropy = [self.model.moe_layers[i].compute_routing_entropy() for i in range(self.model.config.n_layers)]
+            self.routing_entropies.append(routing_entropy)
+
+            if (epoch+1) % self.train_config.print_interval == 0 or epoch == self.train_config.epochs - 1:
+                print(f"  Epoch {epoch+1}/{self.train_config.epochs}, Loss: {current_loss:.4f}")
 
         # Plot the training curve
         self.plot_training_curve(self.train_losses)

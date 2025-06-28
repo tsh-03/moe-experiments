@@ -12,6 +12,7 @@ from prepare_data import Tokenizer
 class ModelConfig:
     def __init__(
         self,
+        dataset_tag: str,
         vocab_size: int,
         d_model: int = 128,
         n_layers: int = 4,
@@ -29,6 +30,8 @@ class ModelConfig:
 
         Parameters
         ----------
+        dataset_tag : str
+            Tag for the dataset used, e.g., 'tiny_stories' or 'sample_alice'.
         d_model : int
             Embedding dimension.
         n_layers : int
@@ -54,6 +57,7 @@ class ModelConfig:
         """
 
         # Transformer hyperparameters
+        self.dataset_tag = dataset_tag
         self.d_model = d_model
         self.n_layers = n_layers
         self.n_heads = n_heads
@@ -230,6 +234,55 @@ class MoELayer(nn.Module):
         # Activation function (used inline)
         self.activation_fn = nn.SiLU()
 
+        # Variables that will be set during the forward pass
+        self.router_logits = None  # Router logits for entropy calculation
+        self.expert_idx = None  # Selected experts for each token
+
+    def compute_routing_entropy(self) -> float:
+        """ 
+        Calculate the entropy of the routing probabilities. The entropy measures confidence in the routing decisions made by the MoE layer. Higher entropy indicates low confidence in the routing, while lower entropy indicates high confidence in the selected experts. The entropy is computed as follows:
+        $$ H = -\sum_{i=1}^{num_experts} \sum_{j=1}^{num_tokens} p_{i,j} \log(p_{i,j}) $$
+
+        where \( p_{i,j} \) are the probabilities of the selected expert $i$ for the token $j$.
+
+        It takes as input the router logits, that are computed during the forward pass and returns the mean entropy.
+
+        Returns
+        -------
+        float
+            Mean entropy of the routing probabilities across all tokens in the batch.
+        """
+        
+        if self.router_logits is None:
+            raise ValueError("Router logits are not computed. Call forward() first.")
+        
+        # router_logits shape: (B, T, num_local_experts)
+        router_probs = torch.softmax(self.router_logits, dim=-1)  # Convert to probabilities
+        entropy = - (router_probs * torch.log(router_probs + 1e-9)).sum(dim=-1)  # (B, T)
+        mean_entropy = entropy.mean()  # Average over batch and sequence
+        
+        return mean_entropy.item()
+    
+    def compute_expert_utilization(self) -> torch.Tensor:
+        """
+        Computes expert utilization for Top-K routing. It counts how many times each expert was selected across all tokens in the batch. This is useful for analyzing the load balancing of experts. 
+        
+        It takes as input the 'expert_idx' tensor, which contains the indices of the experts selected for each token in the batch. This tensor is computed during the forward pass.
+
+        Returns
+        -------
+        utilization : torch.Tensor
+            Tensor of shape (num_experts,) with counts of how many times each expert was selected.
+        """
+
+        # self.experts_idx shape: (B*T*K)
+        
+        # Count occurrences of each expert index
+        # shape: (num_experts,)
+        utilization = torch.bincount(self.expert_idx, minlength=self.num_experts_per_tok)
+
+        return utilization
+    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Apply MoE layer.
@@ -249,11 +302,11 @@ class MoELayer(nn.Module):
         
         # --- Router Logits ---
         # Input x_norm: (B, T, C) -> Router Output: (B, T, num_experts)
-        router_logits = self.router_linear(x)
+        self.router_logits = self.router_linear(x)
 
         # --- Expert Selection (Top-K) ---
         # Get top-k experts and their routing weights (logits)
-        routing_weights, selected_experts = torch.topk(router_logits, self.num_experts_per_tok, dim=-1)
+        routing_weights, selected_experts = torch.topk(self.router_logits, self.num_experts_per_tok, dim=-1)
         # Apply sigmoid to make weights sum to <= k (treating experts independently)
         # Or use Softmax if weights should sum to 1 across the k experts
         # Reference script uses sigmoid: B, T, k
@@ -269,7 +322,7 @@ class MoELayer(nn.Module):
         # token_idx goes from 0 to B*T-1
         # expert_idx is the index of the expert selected (0 to num_experts-1)
         token_idx = torch.arange(B * T, device=x.device).repeat_interleave(self.num_experts_per_tok) # (B*T*k)
-        expert_idx = selected_experts_flat # (B*T*k)
+        self.expert_idx = selected_experts_flat # (B*T*k)
 
         # Gather the hidden states for each token * expert combination
         # Input x_flat: (B*T, C)
@@ -282,10 +335,10 @@ class MoELayer(nn.Module):
         # moe_expert_gate_up_proj[i]: (num_experts, C, 2*expert_dim)
         # Index expert_idx: (B*T*k)
         # Output gate_up_w_selected: (B*T*k, C, 2*expert_dim)
-        gate_up_w_selected = self.gate_up_w[expert_idx]
+        gate_up_w_selected = self.gate_up_w[self.expert_idx]
         # moe_expert_down_proj[i]: (num_experts, expert_dim, C)
         # Output down_w_selected: (B*T*k, expert_dim, C)
-        down_w_selected = self.down_w[expert_idx]
+        down_w_selected = self.down_w[self.expert_idx]
 
         # Perform batched matrix multiplication (BMM)
         # expert_inputs: (B*T*k, C) -> unsqueeze for BMM: (B*T*k, 1, C)
