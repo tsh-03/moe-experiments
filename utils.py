@@ -32,7 +32,8 @@ def save_model(train_obj: TrainModel, path: str):
         'config': train_obj.model.config,
         'train_config': train_obj.train_config,
         'train_losses': train_obj.train_losses,
-        'routing_entropies': train_obj.routing_entropies
+        'routing_entropies': train_obj.routing_entropies,
+        'expert_utilizations': train_obj.expert_utilizations,
     }, path)
 
     print(f"Model saved to {path}")
@@ -59,6 +60,7 @@ def load_model(path: str) -> nn.Module:
     train_config = checkpoint.get('train_config', None)
     train_losses = checkpoint.get('train_losses', None)
     routing_entropies = checkpoint.get('routing_entropies', None)
+    expert_utilizations = checkpoint.get('expert_utilizations', None)
     
     #-----Create a new model instance with the loaded config-----
     # create a new instance of the model with the loaded config
@@ -68,5 +70,5 @@ def load_model(path: str) -> nn.Module:
     model.load_state_dict(checkpoint['model_state_dict'])
     
     print(f"Model loaded from {path}")
-    
-    return model, train_config, train_losses, routing_entropies
+
+    return model, train_config, train_losses, routing_entropies, expert_utilizations

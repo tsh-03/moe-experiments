@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, random_split
 from model import MoETransformer
 from tqdm import trange
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 
 
@@ -92,6 +93,7 @@ class TrainModel:
         # During training, we will log losses and routing entropies
         self.train_losses = []
         self.routing_entropies = []
+        self.expert_utilizations = []
 
     def loss_fn(self, logits, targets):
         """
@@ -180,13 +182,20 @@ class TrainModel:
             current_loss = loss.item()
             self.train_losses.append(current_loss)
 
-            # compute expert utilization and routing entropy
+            # compute routing entropy
             routing_entropy = [self.model.moe_layers[i].compute_routing_entropy() for i in range(self.model.config.n_layers)]
             self.routing_entropies.append(routing_entropy)
+
+            # compute expert utilization
+            expert_utilization = [self.model.moe_layers[i].compute_expert_utilization() for i in range(self.model.config.n_layers)]
+            self.expert_utilizations.append(expert_utilization)
 
             if (epoch+1) % self.train_config.print_interval == 0 or epoch == self.train_config.epochs - 1:
                 print(f"  Epoch {epoch+1}/{self.train_config.epochs}, Loss: {current_loss:.4f}")
 
+        self.routing_entropies = np.array(self.routing_entropies)
+        self.expert_utilizations = np.array(self.expert_utilizations)
+        
         # Plot the training curve
         self.plot_training_curve(self.train_losses)
 
