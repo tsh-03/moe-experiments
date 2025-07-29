@@ -427,7 +427,7 @@ class MultiHeadAttention(nn.Module):
 
     def create_causal_mask(self, block_size: int) -> torch.Tensor:
         """
-        Create a causal mask for attention to prevent attending to future tokens. # Creating the lower triangular mask for causal self-attention. Values are 1 where attention is allowed, 0 where it's masked.
+        Create a causal mask for attention to prevent attending to future tokens. Creating the lower triangular mask for causal self-attention. Values are 1 where attention is allowed, 0 where it's masked.
 
         Parameters
         ----------
