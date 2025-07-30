@@ -281,7 +281,7 @@ class MoELayer(nn.Module):
         # shape: (num_experts,)
         utilization = torch.bincount(self.expert_idx, minlength=self.num_experts_per_tok)
 
-        return utilization
+        return utilization.cpu().numpy()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
