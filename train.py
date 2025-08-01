@@ -19,7 +19,7 @@ class TrainConfig:
     def __init__(self, 
                  batch_size: int=16, 
                  learning_rate: float=5e-4, 
-                 epochs: int=3000, 
+                 steps: int=3000, 
                  print_interval: int=300, 
                  test_split: float=0.1):
         """
@@ -33,11 +33,11 @@ class TrainConfig:
         learning_rate : float
             The learning rate for the optimizer (default is 5e-4).
 
-        epochs : int
-            The total number of epochs to train the model (default is 3000).
+        steps : int
+            The total number of steps to train the model (default is 3000).
         
         print_interval : int
-            The number of epochs after which to print the training loss (default is 300).
+            The number of steps after which to print the training loss (default is 300).
 
         test_split : float
             The fraction of the dataset to be used for validation (default is 0.1).
@@ -45,9 +45,10 @@ class TrainConfig:
 
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.epochs = epochs
+        self.steps = steps
         self.print_interval = print_interval
         self.test_split = test_split
+
 class TrainModel:
     def __init__(self, 
                  model: MoETransformer,
@@ -63,7 +64,7 @@ class TrainModel:
             The MoE Transformer model to be trained.
 
         train_config : TrainConfig
-            The training configuration containing batch size, learning rate, epochs, print interval, and test split.
+            The training configuration containing batch size, learning rate, steps, print interval, and test split.
 
         dataset : Dataset
             The dataset to be used for training and validation.
@@ -119,19 +120,20 @@ class TrainModel:
 
     def plot_training_curve(self, train_losses):
         """
-        Plots the training loss curve over epochs.
+        Plots the training loss curve over steps.
 
         Parameters
         ----------
         train_losses : list
-            A list of training losses recorded at each epoch.
+            A list of training losses recorded at each step.
         """
 
         plt.figure(figsize=(10, 5))
         plt.plot(train_losses)
         plt.title('Training Loss Curve')
-        plt.xlabel('Epochs')
+        plt.xlabel('Training Step')
         plt.ylabel('Loss')
+        plt.yscale('log')
         plt.grid()
         plt.show()
 
@@ -158,10 +160,64 @@ class TrainModel:
                 total_samples += xb.size(0)  # Count samples
 
         return total_loss / total_samples if total_samples > 0 else 0.0
+    
+    def test_top_k_accuracy(self, k=5):
+        """
+        Computes the top-k accuracy on the test dataset.
+
+        Parameters
+        ----------
+        k : int
+            The number of top predictions to consider for accuracy (default is 5).
+
+        Returns
+        -------
+        float
+            The top-k accuracy as a percentage.
+        """
+
+        self.model.eval()
+        total_correct = 0
+        total_samples = 0
+
+        with torch.no_grad():
+            for xb, yb in self.test_dataloader:
+                xb, yb = xb.to(self.device), yb.to(self.device)
+                logits = self.model(xb)  # Forward pass
+                total_correct += self._top_k_accuracy(logits, yb, k) * xb.size(0)  # Accumulate correct predictions
+                total_samples += xb.size(0)  # Count samples
+
+        return total_correct / total_samples if total_samples > 0 else 0.0
+    
+    def _top_k_accuracy(self, logits, targets, k=5):
+        """
+        Computes the top-k accuracy for the model's predictions.
+
+        Parameters
+        ----------
+        logits : torch.Tensor
+            The output logits from the model (shape: [batch_size, sequence_length, vocab_size]).
+
+        targets : torch.Tensor
+            The target labels (shape: [batch_size, sequence_length]).
+
+        k : int
+            The number of top predictions to consider for accuracy (default is 5).
+
+        Returns
+        -------
+        float
+            The top-k accuracy as a percentage.
+        """
+        
+        _, top_k_indices = logits.topk(k, dim=-1)  # Get top-k indices
+        correct = (top_k_indices == targets.unsqueeze(-1)).any(dim=-1)  # Check if any of the top-k indices match the targets
+        
+        return correct.float().mean().item() * 100
 
     def train(self):
         """
-        Trains the MoE Transformer model using the specified configuration. It returns the training and validation losses over epochs.
+        Trains the MoE Transformer model using the specified configuration. It returns the training and validation losses over steps.
         """
 
         # Move model to the specified device
@@ -169,7 +225,7 @@ class TrainModel:
         
         # Training loop
         print("Starting training...")
-        for epoch in trange(self.train_config.epochs):
+        for step in trange(self.train_config.steps):
             xb, yb = next(iter(self.train_dataloader))
             xb, yb = xb.to(self.device), yb.to(self.device) # Move data to device
 
@@ -190,8 +246,8 @@ class TrainModel:
             expert_utilization = [self.model.moe_layers[i].compute_expert_utilization() for i in range(self.model.config.n_layers)]
             self.expert_utilizations.append(expert_utilization)
 
-            if (epoch+1) % self.train_config.print_interval == 0 or epoch == self.train_config.epochs - 1:
-                print(f"  Epoch {epoch+1}/{self.train_config.epochs}, Loss: {current_loss:.4f}")
+            if (step+1) % self.train_config.print_interval == 0 or step == self.train_config.steps - 1:
+                print(f"Step {step+1}/{self.train_config.steps}, Loss: {current_loss:.4f}")
 
         self.routing_entropies = np.array(self.routing_entropies)
         self.expert_utilizations = np.array(self.expert_utilizations)

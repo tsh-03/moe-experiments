@@ -299,7 +299,8 @@ class TinyStoriesDataset(Dataset):
         
         # If story is shorter than block_size, pad it
         if len(tokens) < self.block_size + 1:
-            print(f"Warning: Story at index {idx} is shorter than block_size + 1. Padding with <PAD> token.")
+            # print(f"Warning: Story at index {idx} is shorter than block_size + 1. Padding with <PAD> token.")
+            
             # Pad with the PAD token index
             pad_token_idx = self.tokenizer.stoi['<PAD>']
             tokens.extend([pad_token_idx] * (self.block_size + 1 - len(tokens)))

@@ -23,7 +23,8 @@ class ModelConfig:
         num_local_experts: int = 4,
         num_experts_per_tok: int = 2,
         intermediate_size_expert: int = 256,
-        intermediate_size_shared: int = 256
+        intermediate_size_shared: int = 256,
+        random_routing: bool = False
     ):
         """
         Configuration for the Mixture of Experts (MoE) Transformer.
@@ -54,6 +55,8 @@ class ModelConfig:
             Hidden size within each expert MLP.
         intermediate_size_shared : int
             Hidden size within the shared MLP.
+        random_routing : bool, optional
+            If True, uses random routing instead of learned routing. Default is False.
         """
 
         # Transformer hyperparameters
@@ -64,6 +67,7 @@ class ModelConfig:
         self.block_size = block_size
         self.vocab_size = vocab_size
         self.rms_norm_eps = rms_norm_eps
+        self.random_routing = random_routing
         
         # RoPE hyperparameters
         self.rope_theta = rope_theta
@@ -191,7 +195,8 @@ class MoELayer(nn.Module):
         num_local_experts: int,
         num_experts_per_tok: int,
         expert_dim: int,
-        shared_expert_dim: int
+        shared_expert_dim: int,
+        random_routing: bool = False
     ):
         """
         Mixture of Experts (MoE) layer.
@@ -208,14 +213,19 @@ class MoELayer(nn.Module):
             Hidden layer size of each expert MLP.
         shared_expert_dim : int
             Hidden layer size of shared MLP.
+        random_routing : bool, optional
+            If True, uses random routing instead of learned routing. Default is False.
         """
         
         super().__init__()
 
+        self.num_local_experts = num_local_experts
         self.num_experts_per_tok = num_experts_per_tok
+        self.random_routing = random_routing
         
         # 1. Router
-        self.router_linear = nn.Linear(d_model, num_local_experts, bias=False)
+        if not self.random_routing:
+            self.router_linear = nn.Linear(d_model, num_local_experts, bias=False)
 
         # 2. Experts (Weights as Parameters)
         # Gate/Up Projection Weight: (num_experts, d_model, 2 * expert_dim)
@@ -300,17 +310,30 @@ class MoELayer(nn.Module):
 
         B, T, C = x.shape  # B = batch_size, T = sequence_length, C = d_model
         
-        # --- Router Logits ---
-        # Input x_norm: (B, T, C) -> Router Output: (B, T, num_experts)
-        self.router_logits = self.router_linear(x)
+        if not self.random_routing:
+            # --- Router Logits ---
+            # Input x_norm: (B, T, C) -> Router Output: (B, T, num_experts)
+            self.router_logits = self.router_linear(x)
 
-        # --- Expert Selection (Top-K) ---
-        # Get top-k experts and their routing weights (logits)
-        routing_weights, selected_experts = torch.topk(self.router_logits, self.num_experts_per_tok, dim=-1)
-        # Apply sigmoid to make weights sum to <= k (treating experts independently)
-        # Or use Softmax if weights should sum to 1 across the k experts
-        # Reference script uses sigmoid: B, T, k
-        routing_weights = torch.sigmoid(routing_weights)
+            # --- Expert Selection (Top-K) ---
+            # Get top-k experts and their routing weights (logits)
+            routing_weights, selected_experts = torch.topk(self.router_logits, self.num_experts_per_tok, dim=-1)
+            # Apply sigmoid to make weights sum to <= k (treating experts independently)
+            # Or use Softmax if weights should sum to 1 across the k experts
+            # Reference script uses sigmoid: B, T, k
+            routing_weights = torch.sigmoid(routing_weights)
+        else:
+            # --- Random Routing ---
+            # Randomly select experts for each token
+            # Generate random indices for experts
+            selected_experts = torch.randint(0, self.num_local_experts, (B, T, self.num_experts_per_tok), device=x.device)
+
+            # set router_logits to one for selected experts, zero for others
+            self.router_logits = torch.zeros((B, T, self.num_local_experts), device=x.device)
+            self.router_logits.scatter_(2, selected_experts, 1)
+
+            # Create routing weights as uniform distribution
+            routing_weights = torch.ones((B, T, self.num_experts_per_tok), device=x.device)
 
         # --- Prepare for Expert Calculation ---
         # Flatten B and T dimensions to treat each token independently
@@ -551,7 +574,8 @@ class MoETransformer(nn.Module):
                 num_local_experts=config.num_local_experts,
                 num_experts_per_tok=config.num_experts_per_tok,
                 expert_dim=config.intermediate_size_expert,
-                shared_expert_dim=config.intermediate_size_shared
+                shared_expert_dim=config.intermediate_size_shared,
+                random_routing=config.random_routing
             )
             for _ in range(config.n_layers)
         ])
