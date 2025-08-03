@@ -57,26 +57,24 @@ which is especially useful for large language models.
 Routing entropy measures the confidence of the router in its expert selection. 
 
 Low entropy -> router is confident (often overconfident)
-High entropy -> router is uncertain
-
 **Formula:**
 
-    For a token $i$ with gating probabilities $p_i = [p_{i,1}, p_{i,2}, ..., p_{i,E}]$ over $E$ experts:
+For a token $i$ with gating probabilities $p_i = [p_{i,1}, p_{i,2}, ..., p_{i,E}]$ over $E$ experts:
 
-    $$
-    H_i = -\sum_{j=1}^{E} p_{i,j} \cdot \log(p_{i,j} + \epsilon)
-    $$
+$$
+H_i = -\sum_{j=1}^{E} p_{i,j} \cdot \log(p_{i,j} + \epsilon)
+$$
 
-    where $\epsilon$ is a small constant to prevent $\log(0)$. The gating probabilities are computed 
-    by applying the softmax function to the logits (the outputs of the router network).
+where $\epsilon$ is a small constant to prevent $\log(0)$. The gating probabilities are computed 
+by applying the softmax function to the logits (the outputs of the router network).
 
-    Average routing entropy over all $N$ tokens:
+Average routing entropy over all $N$ tokens:
 
-    $$
-    H = \frac{1}{N} \sum_{i=1}^{N} H_i
-    $$
+$$
+H = \frac{1}{N} \sum_{i=1}^{N} H_i
+$$
 
-    where $N$ is the number of tokens.
+where $N$ is the number of tokens.
 
 #### Expert Utilization
 
@@ -155,10 +153,12 @@ to the loss function could encourage more balanced and confident expert selectio
 model performance and expert specialization.
 
 ### Results of Experiment Grid
-| Model           | Test Loss | Top-3 Accuracy | Routing Entropy (per layer)         | Expert Utilization Std Dev (per layer) |
-| Top-1 Random    | 2.53      | 65.57%         | High: [1.27, 1.27, 1.27, 1.27, 1.27] | Even: [0.01, 0.01, 0.01, 0.01, 0.01]   |
-| Top-2           | 2.42      | 67.22%         | Low: [1.06, 1.02, 0.95, 0.78, 0.65] | High: [0.03, 0.02, 0.07, 0.05, 0.11]   |
-| Top-2 Random    | 2.53      | 65.63%         | High: [1.27, 1.27, 1.27, 1.27, 1.27] | Even: [0.01, 0.01, 0.01, 0.01, 0.01]   |
+| Model           | Test Loss | Top-3 Accuracy | Routing Entropy (all 5 layers)         | Utilization Std Dev (all 5 layers)      |
+|-----------------|-----------|----------------|----------------------------------------|-----------------------------------------|
+| Top-1           | 2.46      | 66.79%         | Low [1.11 1.08 1.06 0.94 0.78]        | High [0.02 0.11 0.12 0.11 0.09]         |
+| Top-1 Random    | 2.53      | 65.57%         | High [1.27 1.27 1.27 1.27 1.27]       | Even [0.01 0.01 0.01 0.01 0.01]         |
+| Top-2           | 2.42      | 67.22%         | Low [1.06 1.02 0.95 0.78 0.65]        | High [0.03 0.02 0.07 0.05 0.11]         |
+| Top-2 Random    | 2.53      | 65.63%         | High [1.27 1.27 1.27 1.27 1.27]       | Even [0.01 0.01 0.01 0.01 0.01]         |
 
 - **Routing Entropy (per layer):** Lower values mean the router is more confident in its expert selection; higher values indicate more uncertainty.
 - **Expert Utilization Std Dev (per layer):** Higher values mean some experts are used much more than others (imbalanced); lower values ("Even") mean experts are used equally.
