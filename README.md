@@ -55,6 +55,7 @@ which is especially useful for large language models.
 Routing entropy measures the confidence of the router in its expert selection. 
 
 Low entropy -> router is confident (often overconfident)
+
 High entropy -> router is uncertain
 
 **Formula:**
