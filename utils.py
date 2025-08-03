@@ -64,6 +64,7 @@ def load_model(path: str) -> nn.Module:
     
     #-----Create a new model instance with the loaded config-----
     # create a new instance of the model with the loaded config
+    checkpoint['config'].device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = MoETransformer(checkpoint['config'])
     
     # load the state dict into the model
