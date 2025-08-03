@@ -9,6 +9,13 @@ This repository is inspired by [FareedKhan-dev/train-llama4](https://github.com/
 
 ---
 
+## 📚 Table of Contents
+- [🚀 Quick Start](#-quick-start)
+- [📂 Repository Contents](#-repository-contents)
+- [🔬 Theory & Components](#-theory--components)
+- [🧪 Experiment Setup](#-experiment-setup)
+- [📈 Results](#-results)
+
 ## 🚀 Quick Start
 
 ### 🔧 Installation
@@ -100,7 +107,7 @@ This project trains the MoE Transformer model using the [TinyStories](https://hu
 
 ---
 
-### 🧪 Experiment Setup
+## 🧪 Experiment Setup
 
 This project compares different routing strategies to understand their impact on expert utilization, routing confidence, and overall model performance.
 
@@ -117,7 +124,7 @@ This project compares different routing strategies to understand their impact on
 
 ---
 
-### 📈 Results
+## 📈 Results
 
 ### 📝 Generated Text  
 **Prompt:** `Once upon a time`  
@@ -145,9 +152,7 @@ Below plots show the evolution of loss, routing entropy, and expert utilization 
 - Expert utilization is balanced in lower layers but uneven in deeper layers.  
 - After ~500 steps, loss and utilization stabilize, but entropy keeps decreasing because top-k experts are selected deterministically. Adding a routing entropy penalty could encourage better expert balance and improve performance.
 
----
-
-### 🔥 Results
+### 🔥 Experiment Setup Results
 
 | Model           | Test Loss | Top‑3 Accuracy | Routing Entropy (5 layers)             | Expert Utilization Std Dev (5 layers) |
 |-----------------|-----------|----------------|----------------------------------------|--------------------------------|
