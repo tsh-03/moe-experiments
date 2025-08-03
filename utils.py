@@ -7,7 +7,7 @@
 import os
 import torch
 from torch import nn
-import pickle
+import numpy as np
 from model import MoETransformer
 from train import TrainModel
 
@@ -72,3 +72,30 @@ def load_model(path: str) -> nn.Module:
     print(f"Model loaded from {path}")
 
     return model, train_config, train_losses, routing_entropies, expert_utilizations
+
+def moving_average(arr, window):
+    """
+    Computes the moving average of a 1D array.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        The input array for which the moving average is to be computed.
+    window : int
+        The size of the moving window.
+
+    Returns
+    -------
+    np.ndarray
+        The moving average of the input array.
+
+    Raises
+    ------
+    ValueError
+        If the length of the input array is less than the window size.
+    """
+
+    if len(arr) < window:
+        raise ValueError(f"Input array must have at least {window} elements to compute moving average.")
+    
+    return np.convolve(arr, np.ones(window)/window, mode='valid')

@@ -1,8 +1,17 @@
-# Mixture of Experts (MoE) Transformer with Llama4 type model
+# ------------------------------------------------------------------------------
+# Mixture of Experts (MoE) Transformer - Training Script
+# ------------------------------------------------------------------------------
 # Author: Tirth Shah
 # Inspired by: https://github.com/FareedKhan-dev/train-llama4
-# Training script
-
+#
+# This script implements the training loop for the MoE Transformer project.
+# It includes:
+#   - TrainConfig: Configuration class for training hyperparameters.
+#   - TrainModel: Handles model training, loss computation, logging, and evaluation.
+#   - Functions for tracking routing entropy and expert utilization during training.
+#   - Utilities for plotting training curves and evaluating test loss/accuracy.
+#
+# Use this script to train and evaluate MoE Transformer models on character-level or TinyStories datasets.
 # ------------------------------------------------------------------------------
 
 import torch
@@ -12,8 +21,6 @@ from model import MoETransformer
 from tqdm import trange
 import matplotlib.pyplot as plt
 import numpy as np
-import os
-
 
 class TrainConfig:
     def __init__(self, 
@@ -40,7 +47,7 @@ class TrainConfig:
             The number of steps after which to print the training loss (default is 300).
 
         test_split : float
-            The fraction of the dataset to be used for validation (default is 0.1).
+            The fraction of the dataset to be used for test loss computation (default is 0.1).
         """
 
         self.batch_size = batch_size
@@ -64,7 +71,8 @@ class TrainModel:
             The MoE Transformer model to be trained.
 
         train_config : TrainConfig
-            The training configuration containing batch size, learning rate, steps, print interval, and test split.
+            The training configuration containing batch size, learning rate, steps, print interval, 
+            and test split.
 
         dataset : Dataset
             The dataset to be used for training and validation.
@@ -118,7 +126,7 @@ class TrainModel:
 
         return nn.CrossEntropyLoss()(logits.view(B * T, V), targets.view(B * T))
 
-    def plot_training_curve(self, train_losses):
+    def plot_training_curve(self, train_losses, window_size=30):
         """
         Plots the training loss curve over steps.
 
@@ -126,10 +134,18 @@ class TrainModel:
         ----------
         train_losses : list
             A list of training losses recorded at each step.
-        """
 
+        window_size : int
+            The size of the moving window for smoothing the training loss curve (default is 30).
+        """
+        
+        train_losses_ma = np.convolve(train_losses, np.ones(window_size)/window_size, mode='valid')
+        
         plt.figure(figsize=(10, 5))
-        plt.plot(train_losses)
+        actual_line = plt.plot(train_losses, label='Training Loss', alpha=0.6)[0]
+        if len(train_losses) > window_size:
+            color = actual_line.get_color()
+            plt.plot(np.arange(window_size - 1, len(train_losses)), train_losses_ma, color=color, linewidth=2)
         plt.title('Training Loss Curve')
         plt.xlabel('Training Step')
         plt.ylabel('Loss')
@@ -217,7 +233,8 @@ class TrainModel:
 
     def train(self):
         """
-        Trains the MoE Transformer model using the specified configuration. It returns the training and validation losses over steps.
+        Trains the MoE Transformer model using the specified configuration. It returns the training 
+        and validation losses over steps.
         """
 
         # Move model to the specified device

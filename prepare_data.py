@@ -1,8 +1,17 @@
-# Mixture of Experts (MoE) Transformer with Llama4 type model
+# ------------------------------------------------------------------------------
+# Mixture of Experts (MoE) Transformer - Data Preparation Script
+# ------------------------------------------------------------------------------
 # Author: Tirth Shah
 # Inspired by: https://github.com/FareedKhan-dev/train-llama4
-# Preparing training data script
-
+#
+# This script provides data preparation utilities for the MoE Transformer project.
+# It includes:
+#   - Character-level and tiktoken-based tokenizers for text data.
+#   - Dataset classes for both small sample texts (e.g., Alice in Wonderland)
+#     and the TinyStories dataset.
+#   - Tools for encoding, decoding, and batching text for language modeling tasks.
+#
+# Use this script to create datasets and tokenizers for training and evaluating MoE Transformer models.
 # ------------------------------------------------------------------------------
 
 import torch
@@ -23,6 +32,7 @@ sample_alice_text = """
         picking the daisies, when suddenly a White Rabbit with pink eyes ran
         close by her.
         """
+
 
 class Tokenizer():
     def __init__(self, vocab: list):
@@ -123,6 +133,7 @@ class CharTokenizer(Tokenizer):
 
         return ''.join([self.itos[i] for i in tokens])
     
+
 class CharDataset(Dataset):
     def __init__(self, text: str, block_size: int = 64):
         """
@@ -168,6 +179,7 @@ class CharDataset(Dataset):
         y = torch.tensor(chunk[1:], dtype=torch.long)
         
         return x, y
+
 
 class TikTokenTokenizer(Tokenizer):
     def __init__(self, text: str):
@@ -235,6 +247,7 @@ class TikTokenTokenizer(Tokenizer):
 
         return ''.join(text_tokens)
 
+
 class TinyStoriesDataset(Dataset):
     def __init__(self, split: str = 'train', block_size: int = 64, max_samples: int = None):
         """
@@ -247,7 +260,8 @@ class TinyStoriesDataset(Dataset):
         block_size : int, optional
             The size of each input sequence (default is 64).
         max_samples : int, optional
-            Maximum number of samples to load (default is None for all samples). It is recommended to not set this to None for very large datasets.
+            Maximum number of samples to load (default is None for all samples). It is recommended 
+            to not set this to None for very large datasets.
         """
 
         self.block_size = block_size
@@ -312,6 +326,3 @@ class TinyStoriesDataset(Dataset):
         y = torch.tensor(chunk[1:], dtype=torch.long)   # Target sequence (shifted by 1)
         
         return x, y
-
-
-

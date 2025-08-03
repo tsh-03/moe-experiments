@@ -1,7 +1,19 @@
-# Mixture of Experts (MoE) Transformer with Llama4 type model
+# ------------------------------------------------------------------------------
+# Mixture of Experts (MoE) Transformer - Model Definition
+# ------------------------------------------------------------------------------
 # Author: Tirth Shah
 # Inspired by: https://github.com/FareedKhan-dev/train-llama4
-
+#
+# This script defines the core model architecture for the MoE Transformer project.
+# It includes:
+#   - ModelConfig: Configuration class for all model hyperparameters.
+#   - RoPE: Rotary positional embedding module.
+#   - MoELayer: Mixture of Experts layer with both learned and random routing. Includes methods for calculating 
+#               routing entropy and expert utilization.
+#   - MultiHeadAttention: Multi-head self-attention with RoPE.
+#   - MoETransformer: The main Transformer model class, integrating all components.
+#
+# Use this script to instantiate, train, and evaluate MoE Transformer models for language modeling and research.
 # ------------------------------------------------------------------------------
 
 import torch
@@ -33,6 +45,8 @@ class ModelConfig:
         ----------
         dataset_tag : str
             Tag for the dataset used, e.g., 'tiny_stories' or 'sample_alice'.
+        vocab_size : int
+            Vocabulary size (number of unique tokens).
         d_model : int
             Embedding dimension.
         n_layers : int
@@ -41,8 +55,6 @@ class ModelConfig:
             Number of attention heads.
         block_size : int
             Maximum context length (sequence length).
-        vocab_size : int
-            Vocabulary size (number of unique tokens).
         rms_norm_eps : float
             Epsilon value for RMS normalization.
         rope_theta : float
@@ -56,7 +68,8 @@ class ModelConfig:
         intermediate_size_shared : int
             Hidden size within the shared MLP.
         random_routing : bool, optional
-            If True, uses random routing instead of learned routing. Default is False.
+            If True, uses random routing instead of learned routing. Default is False. This is useful 
+            as a sanity check to see whether intelligent routing really helps.
         """
 
         # Transformer hyperparameters
@@ -91,10 +104,14 @@ class ModelConfig:
 class RoPE(nn.Module):
     def __init__(self, d_k: int, rope_theta: float = 10000.0, device: str = 'cpu'):
         """
-        Rotary Positional Embedding (RoPE) module. We precompute the inverse frequencies (`inv_freq`) based on `rope_theta` and the dimension of each attention head (`d_k`). The actual rotation angles (`freqs_cis`) depend on the token positions and are calculated dynamically within the forward pass.
+        Rotary Positional Embedding (RoPE) module. We precompute the inverse frequencies (`inv_freq`) 
+        based on `rope_theta` and the dimension of each attention head (`d_k`). The actual rotation 
+        angles (`freqs_cis`) depend on the token positions and are calculated dynamically within the 
+        forward pass.
 
         Formulas:
-        $$ \theta_i = \frac{1}{\rm{ropetheta}^{2i / d_k}} $$ where $i \in [0, 1, ..., d_k/2 - 1]$. We precompute `inv_freq` which corresponds to this $\theta_i$.
+        $$ \theta_i = \frac{1}{\rm{ropetheta}^{2i / d_k}} $$ where $i \in [0, 1, ..., d_k/2 - 1]$. We 
+        precompute `inv_freq` which corresponds to this $\theta_i$.
 
         Parameters
         ----------
@@ -167,7 +184,8 @@ class RoPE(nn.Module):
 
         """
 
-        B, T, n_heads, _ = x.shape  # B = batch_size, T = sequence_length, n_heads = number of heads, d_k = dimension of each head
+        # B = batch_size, T = sequence_length, n_heads = number of heads, d_k = dimension of each head
+        B, T, n_heads, _ = x.shape
         
         # Inline apply_rotary_emb logic
         # Reshape Q or K for complex multiplication: (B, T, n_heads, d_k/2, 2)
@@ -250,12 +268,16 @@ class MoELayer(nn.Module):
 
     def compute_routing_entropy(self) -> float:
         """ 
-        Calculate the entropy of the routing probabilities. The entropy measures confidence in the routing decisions made by the MoE layer. Higher entropy indicates low confidence in the routing, while lower entropy indicates high confidence in the selected experts. The entropy is computed as follows:
+        Calculate the entropy of the routing probabilities. The entropy measures confidence in the 
+        routing decisions made by the MoE layer. Higher entropy indicates low confidence in the routing, 
+        while lower entropy indicates high confidence in the selected experts. The entropy is computed 
+        as follows:
         $$ H = -\sum_{i=1}^{num_experts} \sum_{j=1}^{num_tokens} p_{i,j} \log(p_{i,j}) $$
 
         where \( p_{i,j} \) are the probabilities of the selected expert $i$ for the token $j$.
 
-        It takes as input the router logits, that are computed during the forward pass and returns the mean entropy.
+        It takes as input the router logits, that are computed during the forward pass and returns the 
+        mean entropy.
 
         Returns
         -------
@@ -275,9 +297,12 @@ class MoELayer(nn.Module):
     
     def compute_expert_utilization(self) -> torch.Tensor:
         """
-        Computes expert utilization for Top-K routing. It counts how many times each expert was selected across all tokens in the batch. This is useful for analyzing the load balancing of experts. 
+        Computes expert utilization for Top-K routing. It counts how many times each expert was 
+        selected across all tokens in the batch. This is useful for analyzing the load balancing of 
+        experts. 
         
-        It takes as input the 'expert_idx' tensor, which contains the indices of the experts selected for each token in the batch. This tensor is computed during the forward pass.
+        It takes as input the 'expert_idx' tensor, which contains the indices of the experts selected 
+        for each token in the batch. This tensor is computed during the forward pass.
 
         Returns
         -------
@@ -289,7 +314,7 @@ class MoELayer(nn.Module):
         
         # Count occurrences of each expert index
         # shape: (num_experts,)
-        utilization = torch.bincount(self.expert_idx, minlength=self.num_experts_per_tok)
+        utilization = torch.bincount(self.expert_idx, minlength=self.num_local_experts)
 
         return utilization.cpu().numpy()
     
@@ -429,6 +454,11 @@ class MultiHeadAttention(nn.Module):
             Rotary positional embedding module.
         device : str
             Device to run the attention calculations on (default is 'cpu').
+
+        Raises
+        ------
+        AssertionError
+            If `d_model` is not divisible by `n_heads`.
         """
 
         super().__init__()
@@ -450,7 +480,9 @@ class MultiHeadAttention(nn.Module):
 
     def create_causal_mask(self, block_size: int) -> torch.Tensor:
         """
-        Create a causal mask for attention to prevent attending to future tokens. Creating the lower triangular mask for causal self-attention. Values are 1 where attention is allowed, 0 where it's masked.
+        Create a causal mask for attention to prevent attending to future tokens. Creating the lower 
+        triangular mask for causal self-attention. Values are 1 where attention is allowed, 0 where 
+        it's masked.
 
         Parameters
         ----------
