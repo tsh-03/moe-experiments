@@ -175,11 +175,11 @@ Below are the main quantitative results for each routing strategy described in t
 | Top‑2           | 2.42      | 67.22%         | Low [1.06 1.02 0.95 0.78 0.65]        | High [0.03 0.02 0.07 0.05 0.11] |
 | Top‑2 Random    | 2.53      | 65.63%         | High [1.27 1.27 1.27 1.27 1.27]       | Even [0.01 0.01 0.01 0.01 0.01] |
 
-✅ **Top-2 routing wins** - Best performance (67.22% accuracy vs 65.57% random)  
+✅ **Top-2 routing wins** - Lowest test loss and highest top-3 accuracy  
 ✅ **Expert specialization works** - Learned routing beats random assignment  
-✅ **Deeper layers = more confident** - Routing entropy decreases in later layers  
-⚠️ **Expert imbalance emerges** - Some experts get used more than others  
+✅ **Deeper layers = more confident** - Routing entropy decreases in later layers; Initial layers project data in wider space  
+⚠️ **Expert imbalance emerges** - Some experts get used more than others in later layers  
 
-**Surprise finding:** Random routing works better than expected! This suggests the task might be simple enough that any reasonable expert assignment works.
+**Surprise finding:** Random routing works better than expected! This suggests the task might be simple enough that any random expert assignment works reasonably.
 
 ---
