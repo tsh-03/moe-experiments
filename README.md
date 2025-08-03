@@ -9,6 +9,14 @@ This repository is inspired by [FareedKhan-dev/train-llama4](https://github.com/
 
 ---
 
+## 🎓 What You Will Learn
+- How **Mixture of Experts** works and why it is used in modern LLMs
+- The difference between **Top-1, Top-2, and Random routing** strategies
+- How to measure **expert specialization** using routing entropy and utilization
+- Hands-on experience training and analyzing a **small-scale MoE model**
+
+---
+
 ## 📚 Table of Contents
 - [🚀 Quick Start](#-quick-start)
 - [📂 Repository Contents](#-repository-contents)
@@ -62,15 +70,20 @@ Once training is complete, open [`moe-analyze.ipynb`](moe-analyze.ipynb) to:
 
 ---
 
-## 🔬 Theory & Components
+## 🔬 Theory
 
 ### 🧠 Mixture of Experts (MoE)
 
 **Mixture of Experts (MoE)** is a way to make neural networks larger and smarter without making them much slower.  
-A **router** decides which small networks (called "experts") should handle each token. Instead of all experts working on every token, only a few are used each time.
+A **router** decides which small networks (called "experts") should handle each token. Instead of all experts working on every token, only a few are used each time. Think of MoE like a **smart restaurant kitchen**:
+- Instead of one chef doing everything, you have **multiple specialized chefs (experts)**
+- A **head chef (router)** decides which chef should handle each order
+- This makes the kitchen **faster and more efficient** because chefs specialize
 
-- This lets the model **have more total parameters but similar speed per token**  
-- It also helps experts **specialize in different tasks**, which is why MoE is popular in large language models
+**Key Benefits:**
+- 🚀 **Faster inference** - only some experts work on each token
+- 🎯 **Expert specialization** - different experts learn different patterns
+- 📈 **Better performance** - more total parameters without much slowdown
 
 
 ### 📊 Metrics to Analyze MoE Behavior
@@ -152,7 +165,7 @@ Below plots show the evolution of loss, routing entropy, and expert utilization 
 - Expert utilization is balanced in lower layers but uneven in deeper layers.  
 - After ~500 steps, loss and utilization stabilize, but entropy keeps decreasing because top-k experts are selected deterministically. Adding a routing entropy penalty could encourage better expert balance and improve performance.
 
-### 🔥 Experiment Setup Results
+### 🔥 Key Findings
 
 | Model           | Test Loss | Top‑3 Accuracy | Routing Entropy (5 layers)             | Expert Utilization Std Dev (5 layers) |
 |-----------------|-----------|----------------|----------------------------------------|--------------------------------|
@@ -161,8 +174,11 @@ Below plots show the evolution of loss, routing entropy, and expert utilization 
 | Top‑2           | 2.42      | 67.22%         | Low [1.06 1.02 0.95 0.78 0.65]        | High [0.03 0.02 0.07 0.05 0.11] |
 | Top‑2 Random    | 2.53      | 65.63%         | High [1.27 1.27 1.27 1.27 1.27]       | Even [0.01 0.01 0.01 0.01 0.01] |
 
-🔹 Top‑k routing outperforms random routing  
-🔹 Top‑2 routing performs best (lower loss, higher accuracy)  
-🔹 Random routing works surprisingly well → task may be too simple for full expert specialization.
+✅ **Top-2 routing wins** - Best performance (67.22% accuracy vs 65.57% random)  
+✅ **Expert specialization works** - Learned routing beats random assignment  
+✅ **Deeper layers = more confident** - Routing entropy decreases in later layers  
+⚠️ **Expert imbalance emerges** - Some experts get used more than others  
+
+**Surprise finding:** Random routing works better than expected! This suggests the task might be simple enough that any reasonable expert assignment works.
 
 ---
