@@ -55,6 +55,8 @@ which is especially useful for large language models.
 Routing entropy measures the confidence of the router in its expert selection. 
 
 Low entropy -> router is confident (often overconfident)
+High entropy -> router is uncertain
+
 **Formula:**
 
 For a token $i$ with gating probabilities $p_i = [p_{i,1}, p_{i,2}, ..., p_{i,E}]$ over $E$ experts:
