@@ -1,9 +1,7 @@
 # moe-experiments
 This project implements a simple Mixture of Experts (MoE) Transformer in PyTorch for educational purposes. 
 Inspired by LLaMA-4 architecture, it features top-k expert routing, modular design, and a mini dataset 
-pipeline using the Tiny Stories dataset. It further analyzes and interpret the MoE model in detail, 
-focusing on routing entropy and expert utilization to better understand the behavior and efficiency 
-of expert selection.
+pipeline using the Tiny Stories dataset.
 
 This repository is inspired by [FareedKhan-dev/train-llama4](https://github.com/FareedKhan-dev/train-llama4).
 
